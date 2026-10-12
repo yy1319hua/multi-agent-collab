@@ -53,15 +53,21 @@ for s in "$SELF_DIR"/scripts/*; do
 done
 echo ""
 
-# 3) 模板（已存在则不覆盖，避免抹掉别人的进度）
+# 3) 模板
+# 落点分两类：协同规范与看板放工作区（不入库），交接文档放仓库内（入库，对外）。
 for t in "$SELF_DIR"/templates/*; do
     [ -f "$t" ] || continue
-    dst="$WS/$(basename "$t")"
+    base="$(basename "$t")"
+    if [ "$base" = "HANDOFF.md" ]; then
+        dst="$repo_root/$base"          # 入库：给下一位看的对外说明
+    else
+        dst="$WS/$base"                 # 不入库：协同规范 / 进度看板
+    fi
     if [ -f "$dst" ]; then
-        echo "  · $(basename "$t") 已存在，跳过"
+        echo "  · $base 已存在，跳过（不覆盖别人的进度）"
     else
         cp "$t" "$dst"
-        echo "  ✓ 模板 $(basename "$t")"
+        echo "  ✓ 模板 $base  →  ${dst/#$repo_root/<repo>}"
     fi
 done
 echo ""

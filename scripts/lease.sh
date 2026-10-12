@@ -67,8 +67,10 @@ cmd_acquire() {
     } > "$STATE"
     chmod 600 "$STATE"
 
-    # 同步到 CURRENT_AI（接手流程第 1 步要求）
-    printf '%s\n' "${agent%-agent}" > "$SIGNIN"
+    # 同步到 CURRENT_AI（接手流程第 1 步要求）。
+    # 必须写成**完整署名**（含 -agent 后缀）——pre-commit 拿它和 user.name 逐字比对。
+    # 幂等：传 workbuddy 或 workbuddy-agent 都得到 workbuddy-agent。
+    printf '%s-agent\n' "${agent%-agent}" > "$SIGNIN"
 
     echo "✅ 已签到：$agent"
     cmd_status | sed 's/^/   /'
