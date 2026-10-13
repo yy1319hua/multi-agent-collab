@@ -80,7 +80,7 @@ bash ~/.codebuddy/skills/multi-agent-collab/scripts/init.sh <你的 git 仓库�
 <工作区>/
 ├── CURRENT_AI          谁在场
 ├── LEASE_STATE         签到详情
-├── PUSH_TOKEN          push 令牌（一次性）
+├── PUSH_TOKEN          push 令牌（batch 一次性 / plan 按方案）
 ├── credscan-patterns.txt   待拦截的正则特征（可选，不入库；不是凭据本身）
 ├── creds/                  真实凭据（SSH 私钥 / token / 口令，700/600，绝不入库）
 ├── PROGRESS.md         进度看板
@@ -166,12 +166,29 @@ bash tools/doctor.sh
 
 ### push
 
+两种令牌，按把关粒度选：
+
+| 模式 | 何时用 | 有效期 | 校验 |
+| --- | --- | --- | --- |
+| `batch` | 逐次批准；**打 tag / 新分支首次推送 / 触发 CI 一律用它** | 30 分钟，**一次性**（push 通过即自动消费） | 无 |
+| `plan` | 用户批准**方案**时签发，方案期内反复推送 | 默认 7 天，不消费 | **每次都校验改动文件是否在 `--paths` 范围内，越界即拒** |
+
 ```bash
-bash tools/approve-push.sh "用户于 2026-10-13 06:14 批准：xxx 改动入库"
+# batch：为本次推送签发
+bash tools/approve-push.sh "用户于 2026-10-14 06:14 批准：xxx 改动入库"
 git push origin HEAD
+
+# plan：方案获批时签发，之后该方案范围内的 push 不必再逐次请示
+bash tools/approve-push.sh --plan "M1 指标采集" --paths "scripts/ templates/" \
+    "用户于 2026-10-14 06:14 批准 M1 方案"
+git push origin HEAD        # 方案期内可反复执行；越界改动会被 pre-push 拦下
 ```
 
-没有令牌，`pre-push` 会拒绝并打印如何取得批准。令牌 30 分钟有效、**一次性**（push 通过即自动消费）。
+没有令牌，`pre-push` 会拒绝并打印如何取得批准。方案结束或范围变更请 `--revoke` 撤回：
+
+```bash
+bash tools/approve-push.sh --revoke
+```
 
 ---
 
@@ -199,10 +216,19 @@ lease.sh release                       # 交出工作台
 ### `tools/approve-push.sh` — 签发 push 令牌
 
 ```bash
+# batch：逐次批准，一次推送有效（30 分钟，一次性）
 approve-push.sh "<用户于何时批准哪一批改动>"
+
+# plan：按方案授权，方案期内可多次推送（默认 7 天，按范围校验）
+approve-push.sh --plan "<方案名>" --paths "<允许的文件范围>" "<批准说明>"
+
+# 撤回当前令牌
+approve-push.sh --revoke
 ```
 
-令牌落在工作区（不入库），push 通过后自动消费。
+令牌落在工作区（不入库）。`batch` 通过后自动消费；`plan` 不消费。
+
+**`--paths` 是 `plan` 模式的必需项**，且不接受覆盖整个仓库的范围（`.` / `/` / `*`）——没有范围的方案令牌形同无把关，脚本会拒绝签发。
 
 ### `tools/init.sh` — 一键安装
 
@@ -231,7 +257,18 @@ approve-push.sh "<用户于何时批准哪一批改动>"
 
 ### `pre-push`
 
-无有效令牌直接拒绝，并打印取得批准的方法。
+无有效令牌直接拒绝，并打印取得批准的方法。`plan` 令牌还要再过一道**范围校验**：
+
+1. 取本次推送涉及的改动文件（`git diff --name-only <远端 sha>..<本地 sha>`）
+2. 与令牌里的 `SCOPE_PATHS` 比对，**有任何一个文件越界即拒**，并列出越界文件
+3. 通过后**不消费**令牌（方案期内可继续推送）；`batch` 令牌则推后即消费
+
+两类 push 一律回退到 `batch`（即仍需逐次批准）：
+
+- `refs/tags/*`——打 tag
+- 新分支首次推送（远端无对应 ref，范围无从比对）
+
+每次通过都会打印本次推送的文件清单，作为事后核对的依据。
 
 诚实说明两个局限：
 
@@ -285,6 +322,14 @@ approve-push.sh "<用户于何时批准哪一批改动>"
 附带知识点：只跑 `git gc` 删不掉刚撤回的 commit，**reflog 仍引用着它**，
 必须先 `git reflog expire --expire=now --expire-unreachable=now --all` 再 `gc --prune=now`。
 
+### 6. 把关的维度用「范围」，不用「时间」
+
+令牌若说不清「批准了什么」，就只能靠缩短有效期来限制风险——代价是每推一次都要停下来请示，
+实现阶段被反复打断。把**批准范围写进令牌**，`pre-push` 按范围机械校验：
+方案期内不必反复请示，而越界改动照样推不上去。
+
+也就是说，**放宽的是节奏，不是把关**。
+
 ---
 
 ## 适用边界
@@ -302,6 +347,11 @@ approve-push.sh "<用户于何时批准哪一批改动>"
 **Q：能防住 AI 故意绕过吗？**
 不能，也不打算。`--no-verify` 绕得过任何钩子。本 skill 的目标是防**无意违规**——
 把"随手就推"变成"必须主动违规才能推"，并留下痕迹。防故意破坏靠人，不靠脚本。
+
+**Q：`plan` 令牌会不会变成「一次批准、长期放行」？**
+不会。它受**范围 + 时间**双重约束：每次 push 都由 `pre-push` 校验改动文件是否在 `--paths` 内，
+越界即拒；默认 7 天过期；**打 tag / 新分支首次推送不适用**，仍逐次批准；用户随时 `--revoke` 撤回。
+放宽的是节奏（不必每推一次都问），不是把关（越界照样拦）。
 
 **Q：为什么签到不做成硬锁？**
 因为串行由**用户调度**，不是系统调度。硬锁在"上一位挂了"时会卡住用户钦点的下一位。
