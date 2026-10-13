@@ -91,6 +91,12 @@ bash ~/.codebuddy/skills/multi-agent-collab/scripts/init.sh <你的 git 仓库�
     └── .githooks/      钩子
 ```
 
+> **本仓库自身不安装协同机制**：它是发布源，不是被协同开发的目标项目。
+> 它按「仓库直接放在顶层」的扁平布局存在，若对它跑 `init.sh`，工作区会被推导到父目录
+> （一块属于别人的地盘），状态文件会落到那里。
+> 若你要对 multi-agent-collab 本身做多人接力开发，请先按两层结构 clone
+> （如 `~/work/mac/multi-agent-collab`），再对新克隆跑 `init.sh`。
+
 ---
 
 ## 接入场景：有共用沙箱 vs 无共用沙箱
