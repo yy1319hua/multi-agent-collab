@@ -3,13 +3,16 @@
 #
 # 用法：bash init.sh <git 仓库路径>
 #
-# 会做三件事：
+# 会做五件事：
 #   1. hooks/  →  <repo>/.githooks/          并设 core.hooksPath
 #   2. scripts/ → <工作区>/tools/             （工作区 = 仓库的父目录，不入库）
 #   3. templates/ → <工作区>/                 （AGENTS.md / HANDOFF.md / PROGRESS.md）
+#   4. creds/  → <工作区>/creds/              （700，工作树外、绝不入库）
+#   5. 兜底忽略 → <repo>/.git/info/exclude    （本地级，不入库；对应 PITFALLS #6）
 #
 # 前提：仓库的父目录即工作区（git 工作树之外），凭据与状态都放这里，
 # 因此 git add -A 永远抓不到它们。
+# 第 5 步是这条前提的兜底：万一状态文件被误建进工作树，也不会被误提交。
 set -uo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -70,6 +73,29 @@ for t in "$SELF_DIR"/templates/*; do
         echo "  ✓ 模板 $base  →  ${dst/#$repo_root/<repo>}"
     fi
 done
+echo ""
+
+# 4) 凭据目录 —— AGENTS.md / HANDOFF.md 都把凭据位置记为 <工作区>/creds/，
+#    这里由安装脚本负责把它建出来（700，工作树之外、绝不入库）。
+#    幂等：已存在则跳过，且不动目录里已有的任何文件。
+mkdir -p "$WS/creds"
+chmod 700 "$WS/creds" 2>/dev/null || echo "  ⚠️ 无法 chmod 700 $WS/creds（非当前用户所有？）" >&2
+echo "  ✓ 凭据目录 $WS/creds（700，工作树外、绝不入库）"
+echo ""
+
+# 5) 兜底忽略 —— 对应 PITFALLS #6「签到文件被误建进 git 工作树」。
+#    状态文件本该落在<工作区>（工作树之外），但若有人 cd 进仓库后用相对路径误建，
+#    兜底忽略能让 git add -A 也抓不到它们。
+#    写在 .git/info/exclude：本地级忽略，不进版本库、不需要 commit——
+#    因此不改动目标项目自身的 .gitignore，也不影响其他协作者。
+#    幂等：已存在完全相同的一行就跳过，重复跑 init.sh 不会堆积。
+exclude_file="$repo_root/.git/info/exclude"
+if [ -f "$exclude_file" ]; then
+    for pat in CURRENT_AI LEASE_STATE PUSH_TOKEN credscan-patterns.txt; do
+        grep -qxF "$pat" "$exclude_file" 2>/dev/null || echo "$pat" >> "$exclude_file"
+    done
+    echo "  ✓ 兜底忽略 → .git/info/exclude（本地级，不入库）"
+fi
 echo ""
 
 cat <<EOF

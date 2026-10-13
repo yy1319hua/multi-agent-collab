@@ -53,23 +53,36 @@ git clone https://github.com/yy1319hua/multi-agent-collab.git \
 bash ~/.codebuddy/skills/multi-agent-collab/scripts/init.sh <你的 git 仓库路径>
 ```
 
-`init.sh` 做三件事：
+`init.sh` 做四件事：
 
 | 动作 | 落点 |
 | --- | --- |
 | `hooks/` → | `<repo>/.githooks/`，并设 `core.hooksPath .githooks` |
 | `scripts/` → | `<工作区>/tools/`（工作区 = 仓库的**父目录**，不入库） |
 | `templates/` → | `<工作区>/`（已存在则不覆盖，不会抹掉别人的进度） |
+| 兜底忽略 → | `<repo>/.git/info/exclude` 追加状态文件名（本地级，不入库、不需 commit） |
 
 **工作区约定**：仓库的父目录即工作区，所有状态与凭据都放这里、**git 工作树之外**——
 所以 `git add -A` 永远抓不到它们。
+
+**两处「敏感」不是一回事，别混**：
+
+| 文件 / 目录 | 放什么 | 说明 |
+| --- | --- | --- |
+| `creds/` | **真实凭据**：SSH 私钥、token、口令等 | 700/600，**绝不入库** |
+| `credscan-patterns.txt` | **待拦截的正则形态**：内网 IP、内部域名等 | 每行一个正则，**绝不入库**；只放正则，不放凭据本身 |
+
+`init.sh` 还会把状态文件名追加进 `<repo>/.git/info/exclude` 兜底——万一有人 `cd` 进仓库后
+用相对路径误建了状态文件，`git add -A` 也抓不到（本地级忽略，不进版本库、不需要 commit，
+对应 `references/PITFALLS.md` #6）。
 
 ```
 <工作区>/
 ├── CURRENT_AI          谁在场
 ├── LEASE_STATE         签到详情
 ├── PUSH_TOKEN          push 令牌（一次性）
-├── credscan-patterns.txt   项目专属敏感串（可选，不入库）
+├── credscan-patterns.txt   待拦截的正则特征（可选，不入库；不是凭据本身）
+├── creds/                  真实凭据（SSH 私钥 / token / 口令，700/600，绝不入库）
 ├── PROGRESS.md         进度看板
 ├── AGENTS.md           协同规范
 ├── tools/              脚本
