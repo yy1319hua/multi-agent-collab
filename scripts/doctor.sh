@@ -93,9 +93,20 @@ fi
 line
 
 echo "【凭据残留扫描（工作树内）】"
-if git grep -inE "$PATTERN" -- . 2>/dev/null | head -3 | grep -q .; then
+# 自指排除：凭据特征串（私钥头 / github_pat_ 等）的定义本身就写在 skill 文件里
+# （.githooks/pre-commit、hooks/pre-commit、scripts/doctor.sh）。若不排除，扫描会把自己的
+# 特征定义当成命中，报假阳性 —— 与 pre-commit 排除 hooks 目录同理。
+# 这些目录是 skill 自身脚手架、不存用户真实凭据；且只在它们确实落在被扫描的仓库树内时才排除，
+# 不会误伤目标仓库里同名目录（如用户的 scripts/）。
+SCAN_EXCLUDE=( ":(exclude).githooks" ":(exclude)hooks" )
+self_dir=$(dirname -- "$0")
+if [ "$self_dir" != "." ] && [ "$self_dir" != "/" ] \
+   && git ls-files --error-unmatch -- "$self_dir" >/dev/null 2>&1; then
+    SCAN_EXCLUDE+=( ":(exclude)$self_dir" )
+fi
+if git grep -inE "$PATTERN" -- . "${SCAN_EXCLUDE[@]}" 2>/dev/null | head -3 | grep -q .; then
     echo "  ⛔ 命中，立即处理："
-    git grep -inE "$PATTERN" -- . 2>/dev/null | head -3 | cut -c1-110 | sed 's/^/    /'
+    git grep -inE "$PATTERN" -- . "${SCAN_EXCLUDE[@]}" 2>/dev/null | head -3 | cut -c1-110 | sed 's/^/    /'
 else
     echo "  ✅ 无命中"
 fi
