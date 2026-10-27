@@ -73,7 +73,7 @@ bash <工作区>/multi-agent-collab/scripts/init.sh <你的 git 仓库路径>
 | --- | --- |
 | 框架实例 → | `<工作区>/multi-agent-collab/`（自包含：scripts/ hooks/ templates/ references/ README 等；不入库，每项目一份） |
 | `hooks/` → | `<repo>/.githooks/`，并设 `core.hooksPath .githooks`（入库、随仓库走） |
-| `templates/` → | `AGENTS.md` / `PROGRESS.md` 落到`<工作区>/`（已存在则不覆盖）；`HANDOFF.md` 落到`<repo>/`（入库） |
+| `templates/` → | `AGENTS.md` / `PROGRESS.md` / `HANDOFF.md` 落到`<工作区>/`（已存在则不覆盖，不入库） |
 | `creds/` → | `<工作区>/creds/`（700，工作树外、绝不入库） |
 | 兜底忽略 → | `<repo>/.git/info/exclude` 追加状态文件名（本地级，不入库、不需 commit） |
 
@@ -106,8 +106,8 @@ bash <工作区>/multi-agent-collab/scripts/init.sh <你的 git 仓库路径>
 ├── creds/               真实凭据（SSH 私钥 / token / 口令，700/600，绝不入库）
 ├── PROGRESS.md          进度看板
 ├── AGENTS.md            协同规范（明文，任何 AI 可读）
+├── HANDOFF.md           对外交接文档（工作区，不入库）
 └── <repo>/              git 工作树
-    ├── HANDOFF.md       对外交接文档（入库）
     └── .githooks/       钩子（入库、随仓库走）
 ```
 
@@ -133,13 +133,17 @@ bash <工作区>/multi-agent-collab/scripts/init.sh <你的 git 仓库路径>
 - 因为大家都操作同一份克隆，工作区的 `CURRENT_AI` / `LEASE_STATE` / `PUSH_TOKEN` / `credscan-patterns.txt` 是**单份共享**的——上一位签到，下一位一眼可见。这正是非阻塞签到的设计预期。
 - 框架实例：就在共享工作区，大家共用同一份。
 
-### 情况 B：无共用工作区（各 AI 各自独立环境）
+### 情况 B：无共用工作区（跨机器，各 AI 各自独立环境）
+
+> **本节只讨论「跨机器、无共用工作区」的情形。** 若多 AI 共用同一份工作区（情况 A），
+> 工作区里的 `CURRENT_AI` / `HANDOFF.md` / `PROGRESS.md` 等是**共享文件**、轮换时直接读、
+> 天然同步，**根本不需要靠 commit 来回传**——见上文情况 A。
 
 典型：A 在自己机器上干完交出去，B 在另一台机器上 clone 接手。
 
 - 每个 AI 各自 clone；**每个新克隆都要单独跑 `init.sh`**——因为框架实例与 `credscan-patterns.txt` 不入库、`core.hooksPath` 不被 clone 继承，clone 下来既没有框架实例也没配钩子。
-- **关键差异**：工作区状态（`CURRENT_AI` 等）**各机器各一份、互不同步**——A 在机器甲的签到不会反映到机器乙的克隆。因此「谁在场、干到哪」的唯一真相只能落在**仓库内**：`HANDOFF.md`（入库）+ commit 历史 + 把签到信息写进 commit / HANDOFF。这正是「进度属于仓库，不属于本地文件」的体现：跨机器时，本地工作区文件不再是状态载体，仓库才是。
-- 实操：交接双方靠 `git fetch` + 读 `HANDOFF.md` + 看最近 commit 对齐，而不是靠共享一份 `CURRENT_AI`。
+- **关键差异（仅限情况 B）**：工作区状态（`CURRENT_AI` 等）**各机器各一份、互不同步**——A 在机器甲的签到不会反映到机器乙的克隆。因此「谁在场、干到哪」的真相主要靠**仓库**：commit 历史 + 把签到信息写进 commit 消息。协同文档（AGENTS / PROGRESS / HANDOFF）不入库、各机各份，跨机器交接时靠重新跑 `init.sh` 补出空白模板、再对照 commit 历史对齐——它们**只在「同一份工作区」内**才是有效的交接工具，跨机器则不是状态载体。这正是「进度属于仓库，不属于本地文件」的体现：跨机器时，本地工作区文件不再是状态载体，仓库才是。
+- 实操（B）：交接双方靠 `git fetch` + 看最近 commit 对齐。
 
 ### 对照
 
@@ -148,7 +152,7 @@ bash <工作区>/multi-agent-collab/scripts/init.sh <你的 git 仓库路径>
 | 仓库克隆 | 一份，全员共享 | 各 AI 各一份 |
 | `init.sh` | 跑一次 | 每个克隆各跑一次 |
 | 工作区状态（`CURRENT_AI` 等） | 单份共享，天然传递 | 各机各份，互不同步 |
-| 状态真相载体 | 工作区文件 + 仓库 | 以仓库（`HANDOFF` + commits）为主 |
+| 状态真相载体 | 工作区文件（共享，直接可读）+ 仓库 | 以仓库（commits）为主；协同文档仅同一工作区内有效、跨机器无效 |
 | 框架实例 | 共享工作区一份 | 各工作区各一份 |
 | 适用 | 多 AI 共用开发机 | 跨机器串行交接 |
 
@@ -300,7 +304,7 @@ approve-push.sh --revoke
 | 模板 | 位置 | 用途 |
 | --- | --- | --- |
 | `AGENTS.md` | 工作区（不入库） | 协同规范：接手六步、硬规矩、现场五元组 |
-| `HANDOFF.md` | 仓库内（**入库**） | 给下一位看的对外说明 |
+| `HANDOFF.md` | 工作区（不入库） | 给下一位看的对外说明（多 AI 共用工作区，不污染项目库） |
 | `PROGRESS.md` | 工作区（不入库） | 进度看板，完成一项勾一项 + 记 sha |
 
 ---

@@ -7,8 +7,7 @@
 #   0. 框架实例 → <工作区>/multi-agent-collab/ （自包含：scripts/ hooks/ templates/
 #                 references/ README 等；不入库，每个项目一份）
 #   1. hooks/  →  <repo>/.githooks/          并设 core.hooksPath
-#   2. templates/ → <工作区>/                 （AGENTS.md / PROGRESS.md，不入库）
-#                  + <repo>/HANDOFF.md        （入库，对外交接）
+#   2. templates/ → <工作区>/                 （AGENTS.md / PROGRESS.md / HANDOFF.md，不入库）
 #   3. creds/  → <工作区>/creds/              （700，工作树外、绝不入库）
 #   4. 兜底忽略 → <repo>/.git/info/exclude    （本地级，不入库；对应 PITFALLS #6）
 #
@@ -70,15 +69,11 @@ echo "  ✓ core.hooksPath = .githooks"
 echo ""
 
 # 2) 模板
-# 落点分两类：协同规范与看板放工作区（不入库），交接文档放仓库内（入库，对外）。
+# 落点：协同规范、进度看板、交接文档统一放工作区（不入库；多 AI 共用工作区、不污染项目库）。
 for t in "$SELF_DIR"/templates/*; do
     [ -f "$t" ] || continue
     base="$(basename "$t")"
-    if [ "$base" = "HANDOFF.md" ]; then
-        dst="$repo_root/$base"          # 入库：给下一位看的对外说明
-    else
-        dst="$WS/$base"                 # 不入库：协同规范 / 进度看板
-    fi
+    dst="$WS/$base"                     # 不入库：协同规范 / 进度看板 / 交接文档（多 AI 共用工作区）
     if [ -f "$dst" ]; then
         echo "  · $base 已存在，跳过（不覆盖别人的进度）"
     else
