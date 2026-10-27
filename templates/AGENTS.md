@@ -17,7 +17,7 @@
 | 交接文档 | 仓库内 `HANDOFF.md`（要对外，故入库） |
 | 凭据 | `<工作区>/creds/`（700/600，**绝不入库**）——放**真实凭据**：SSH 私钥、token、口令等 |
 | 敏感串特征 | `<工作区>/credscan-patterns.txt`（每行一个正则，**绝不入库**）——只放**待拦截的正则形态**（内网 IP、内部域名等），不是凭据本身 |
-| 工具 | `<工作区>/tools/` |
+| 工具 | `<工作区>/multi-agent-collab/scripts/` |
 
 ## 接手标准流程（每次都要走，别跳）
 
@@ -27,7 +27,7 @@
 ### 第 1 步：签到
 
 ```bash
-bash <工作区>/tools/lease.sh acquire <你的署名> "本轮用途"
+bash <工作区>/multi-agent-collab/scripts/lease.sh acquire <你的署名> "本轮用途"
 cd <repo> && git config --local user.name "<署名>" && git config --local user.email "<署名>@local"
 git config core.hooksPath .githooks
 ```
@@ -55,7 +55,7 @@ git fetch && git log --oneline -5
 ### 第 4 步：读现状
 
 ```bash
-bash <工作区>/tools/doctor.sh
+bash <工作区>/multi-agent-collab/scripts/doctor.sh
 ```
 
 一条命令出齐：环境 / 签到 / 上一位遗留 / git 位置 / 看板 / 凭据扫描。
@@ -107,11 +107,11 @@ HEAD：<git rev-parse --short HEAD>（vs origin：ahead/behind/equal）
 7. **方案先行**：新增功能 / UI 改动必须先出方案（必要时附效果图）交用户过目，
    拿到明确批准前禁止改代码、禁止打包。
 
-关于「谁把关」的完整判定，见 skill 的 `references/CONFORMANCE.md`——
+关于「谁把关」的完整判定，见本框架的 `multi-agent-collab/references/CONFORMANCE.md`——
 **注意：用户把关不是弱约束。代码能被 `--no-verify` 绕过，用户绕不过。**
 
 ## 变更
 
 | 日期 | 署名 | 改了什么 |
 | --- | --- | --- |
-| （初始化） | — | 由 multi-agent-collab skill 生成 |
+| （初始化） | — | 由 multi-agent-collab 框架生成 |

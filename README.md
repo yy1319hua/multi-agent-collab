@@ -1,6 +1,7 @@
 # multi-agent-collab
 
-一套给**多个 AI 串行接手同一代码库**用的协同规范与工具，打包成 Agent Skill。
+一套给**多个 AI 串行接手同一代码库**用的协同规范与工具。**不是某个厂商的 Skill**——
+WorkBuddy、CodeBuddy、GLM（智谱）等**任何能跑 git 与 bash 的 AI** 都能用。
 
 > **创作者**：workbuddy-agent（2026-10-13）
 > **思路来源**：[claude-codex-handoff](https://github.com/OpenMOSS/claude-codex-handoff) ·
@@ -12,8 +13,8 @@
 
 ## 这是什么
 
-一个 Agent Skill。AI 加载它之后，就懂得如何在**别人（人或另一个 AI）用过的代码库**上接手干活，
-以及干完怎么交出去，而不丢进度、不越界、不泄密。
+一套**跨厂商的协同框架**。装上它之后，多个 AI 能在**别人（人或另一个 AI）用过的代码库**上接力干活，
+接手怎么干、干完怎么交出去，都不丢进度、不越界、不泄密。
 
 核心主张只有一句：
 
@@ -22,13 +23,27 @@
 由此推出三条：接手必须真跑 git 命令（不能凭印象）、进度必须靠 commit 落到仓库、
 规矩尽量由代码强制而不是写在文档里等着被违反。
 
+## 为什么不是「一个 Skill」
+
+协同的强制力来自两层**与厂商无关**的机制，而不是任何一家 AI 的技能系统：
+
+| 层 | 机制 | 跨 AI 通用吗 |
+| --- | --- | --- |
+| **强制层** | `hooks/`（pre-commit 凭据扫描、pre-push 令牌拦截）装入仓库 `.githooks/` + `core.hooksPath` | ✅ 这是 git 自己触发的。WorkBuddy / CodeBuddy / GLM 谁跑 `git commit` / `git push` 都被同一套钩子挡 |
+| **脚本层** | `scripts/` 里的明文 bash（lease / doctor / approve） | ✅ 任何 AI 用 `bash <路径>/script.sh` 就能跑，靠 `BASH_SOURCE` 自定位，不依赖任何厂商占位符 |
+| **规范层** | `AGENTS.md` / `PROGRESS.md` / `HANDOFF.md` | ✅ 明文 markdown，任何 AI 都读得下；`AGENTS.md` 还是 OpenAI Codex 带起来的跨厂商约定 |
+
+> 各 AI 的「技能发现」路径（如 CodeBuddy 的 `.codebuddy/skills/`、各种 `*SKILL_DIR` 占位符）是**厂商私有**的，
+> 本框架**不依赖**它们。框架只产出明文脚本 + 明文文档 + git 钩子，三家共用一套。
+> 因此每个项目都**实例化一份**框架到自己的工作区，而不是依赖某个全局技能目录。
+
 ---
 
 ## 解决什么问题
 
-下面每一条都是**真实发生过的事故**，本 skill 的每个设计都对应其中某一行：
+下面每一条都是**真实发生过的事故**，本框架的每个设计都对应其中某一行：
 
-| # | 事故 | 后果 | 本 skill 的对策 |
+| # | 事故 | 后果 | 本框架的对策 |
 | --- | --- | --- | --- |
 | 1 | 把「一次性豁免」当成长期授权，擅自 push 三个 commit | 未经批准的代码进了远端 | `pre-push` 校验一次性令牌，无令牌**物理上推不上去** |
 | 2 | 把「先出框架」做成完整实现 | 替用户做了决策，白做一轮 | 「动手前对齐」：先复述范围，确认再写 |
@@ -45,25 +60,25 @@
 ## 快速开始
 
 ```bash
-# 1. 安装 skill
-git clone https://github.com/yy1319hua/multi-agent-collab.git \
-    ~/.codebuddy/skills/multi-agent-collab
+# 1. 取框架源码（任意位置，建议就放在工作区）
+git clone https://github.com/yy1319hua/multi-agent-collab.git <工作区>/multi-agent-collab
 
-# 2. 装到目标项目
-bash ~/.codebuddy/skills/multi-agent-collab/scripts/init.sh <你的 git 仓库路径>
+# 2. 实例化到目标项目：装钩子进仓库、落框架与状态到工作区
+bash <工作区>/multi-agent-collab/scripts/init.sh <你的 git 仓库路径>
 ```
 
-`init.sh` 做四件事：
+`init.sh` 做五件事：
 
 | 动作 | 落点 |
 | --- | --- |
-| `hooks/` → | `<repo>/.githooks/`，并设 `core.hooksPath .githooks` |
-| `scripts/` → | `<工作区>/tools/`（工作区 = 仓库的**父目录**，不入库） |
-| `templates/` → | `<工作区>/`（已存在则不覆盖，不会抹掉别人的进度） |
+| 框架实例 → | `<工作区>/multi-agent-collab/`（自包含：scripts/ hooks/ templates/ references/ README 等；不入库，每项目一份） |
+| `hooks/` → | `<repo>/.githooks/`，并设 `core.hooksPath .githooks`（入库、随仓库走） |
+| `templates/` → | `AGENTS.md` / `PROGRESS.md` 落到`<工作区>/`（已存在则不覆盖）；`HANDOFF.md` 落到`<repo>/`（入库） |
+| `creds/` → | `<工作区>/creds/`（700，工作树外、绝不入库） |
 | 兜底忽略 → | `<repo>/.git/info/exclude` 追加状态文件名（本地级，不入库、不需 commit） |
 
-**工作区约定**：仓库的父目录即工作区，所有状态与凭据都放这里、**git 工作树之外**——
-所以 `git add -A` 永远抓不到它们。
+**工作区约定**：仓库的父目录即工作区，框架实例、所有状态与凭据都放这里、**git 工作树之外**——
+所以 `git add -A` 永远抓不到它们。每个项目一份框架实例，放在各自工作区（不是全局技能目录）。
 
 **两处「敏感」不是一回事，别混**：
 
@@ -78,20 +93,25 @@ bash ~/.codebuddy/skills/multi-agent-collab/scripts/init.sh <你的 git 仓库�
 
 ```
 <工作区>/
-├── CURRENT_AI          谁在场
-├── LEASE_STATE         签到详情
-├── PUSH_TOKEN          push 令牌（batch 一次性 / plan 按方案）
-├── credscan-patterns.txt   待拦截的正则特征（可选，不入库；不是凭据本身）
-├── creds/                  真实凭据（SSH 私钥 / token / 口令，700/600，绝不入库）
-├── PROGRESS.md         进度看板
-├── AGENTS.md           协同规范
-├── tools/              脚本
-└── <repo>/             git 工作树
-    ├── HANDOFF.md      对外交接文档（入库）
-    └── .githooks/      钩子
+├── multi-agent-collab/    框架实例（自包含，不入库）
+│   ├── scripts/           lease.sh / doctor.sh / approve-push.sh / init.sh
+│   ├── hooks/             pre-commit / pre-push（模板，init.sh 复制到仓库）
+│   ├── templates/         AGENTS.md / HANDOFF.md / PROGRESS.md
+│   ├── references/        CONFORMANCE.md / PITFALLS.md
+│   └── README.md / CREDITS.md / LICENSE
+├── CURRENT_AI            谁在场
+├── LEASE_STATE           签到详情
+├── PUSH_TOKEN            push 令牌（batch 一次性 / plan 按方案）
+├── credscan-patterns.txt 待拦截的正则特征（可选，不入库；不是凭据本身）
+├── creds/               真实凭据（SSH 私钥 / token / 口令，700/600，绝不入库）
+├── PROGRESS.md          进度看板
+├── AGENTS.md            协同规范（明文，任何 AI 可读）
+└── <repo>/              git 工作树
+    ├── HANDOFF.md       对外交接文档（入库）
+    └── .githooks/       钩子（入库、随仓库走）
 ```
 
-> **本仓库自身不安装协同机制**：它是发布源，不是被协同开发的目标项目。
+> **本仓库自身不安装协同机制**：它是框架发布源，不是被协同开发的目标项目。
 > 它按「仓库直接放在顶层」的扁平布局存在，若对它跑 `init.sh`，工作区会被推导到父目录
 > （一块属于别人的地盘），状态文件会落到那里。
 > 若你要对 multi-agent-collab 本身做多人接力开发，请先按两层结构 clone
@@ -99,42 +119,40 @@ bash ~/.codebuddy/skills/multi-agent-collab/scripts/init.sh <你的 git 仓库�
 
 ---
 
-## 接入场景：有共用沙箱 vs 无共用沙箱
+## 接入场景：有共用工作区 vs 无共用工作区
 
-本 skill 有两种部署形态，区别只在一点：**多个 AI 是不是在同一台机器上操作同一个仓库克隆。**
+本框架有两种部署形态，区别只在一点：**多个 AI 是不是在同一台机器上操作同一个仓库克隆。**
 
-> **一个前提要记牢**：钩子（`.githooks/`）入库、随仓库走；脚本工具（`tools/`）和凭据配置（`credscan-patterns.txt`）放在**工作树外、不入库**。所以 `git clone` 下来有钩子但没有工具，每棵新工作树都得补工具、配 `core.hooksPath`。而 skill 知识层（`SKILL.md` + `references/` 等）装在 **AI 的 CodeBuddy 环境**，与仓库、与机器都是两码事。
+> **一个前提要记牢**：钩子（`.githooks/`）入库、随仓库走；框架实例（`multi-agent-collab/`）和凭据配置（`credscan-patterns.txt`）放在**工作树外、不入库**。所以 `git clone` 下来有钩子但没有框架实例与工具，每棵新工作树都得补——对克隆跑一次 `init.sh` 即可。规范文档（`AGENTS.md` 等）也在工作树外，由 `init.sh` 落到工作区，**不装在 AI 的某个全局技能目录里**。
 
-### 情况 A：有共用沙箱（多 AI 共用一台开发机 / 同一份克隆）
+### 情况 A：有共用工作区（多 AI 共用一台开发机 / 同一份克隆）
 
 典型如 oci-panel-app：多个 AI 在共享机上接力同一份仓库克隆。
 
-- 仓库只 clone 一份在共享机；对这棵工作树跑**一次** `init.sh` 即可，钩子、脚本、模板一次到位。
+- 仓库只 clone 一份在共享机；对这棵工作树跑**一次** `init.sh` 即可，钩子、框架实例、模板一次到位。
 - 因为大家都操作同一份克隆，工作区的 `CURRENT_AI` / `LEASE_STATE` / `PUSH_TOKEN` / `credscan-patterns.txt` 是**单份共享**的——上一位签到，下一位一眼可见。这正是非阻塞签到的设计预期。
-- skill 知识层：装在参与协作的 CodeBuddy 环境上。若多个 AI 共用同一实例则装一次；若各自独立实例则各装各的，但钩子与工作区仍共享。
-- 天然匹配「共享一台开发机 / 一个工作区」场景（见下文适用边界）。
+- 框架实例：就在共享工作区，大家共用同一份。
 
-### 情况 B：无共用沙箱（各 AI 各自独立环境）
+### 情况 B：无共用工作区（各 AI 各自独立环境）
 
 典型：A 在自己机器上干完交出去，B 在另一台机器上 clone 接手。
 
-- 每个 AI 各自 clone；**每个新克隆都要单独跑 `init.sh`**——因为 `tools/` 与 `credscan-patterns.txt` 不入库、`core.hooksPath` 不被 clone 继承，clone 下来既没有工具也没配钩子。
-- skill 知识层：每个 CodeBuddy 实例装到自己环境一次。
+- 每个 AI 各自 clone；**每个新克隆都要单独跑 `init.sh`**——因为框架实例与 `credscan-patterns.txt` 不入库、`core.hooksPath` 不被 clone 继承，clone 下来既没有框架实例也没配钩子。
 - **关键差异**：工作区状态（`CURRENT_AI` 等）**各机器各一份、互不同步**——A 在机器甲的签到不会反映到机器乙的克隆。因此「谁在场、干到哪」的唯一真相只能落在**仓库内**：`HANDOFF.md`（入库）+ commit 历史 + 把签到信息写进 commit / HANDOFF。这正是「进度属于仓库，不属于本地文件」的体现：跨机器时，本地工作区文件不再是状态载体，仓库才是。
 - 实操：交接双方靠 `git fetch` + 读 `HANDOFF.md` + 看最近 commit 对齐，而不是靠共享一份 `CURRENT_AI`。
 
 ### 对照
 
-| 维度 | 有共用沙箱（A） | 无共用沙箱（B） |
+| 维度 | 有共用工作区（A） | 无共用工作区（B） |
 | --- | --- | --- |
 | 仓库克隆 | 一份，全员共享 | 各 AI 各一份 |
 | `init.sh` | 跑一次 | 每个克隆各跑一次 |
 | 工作区状态（`CURRENT_AI` 等） | 单份共享，天然传递 | 各机各份，互不同步 |
 | 状态真相载体 | 工作区文件 + 仓库 | 以仓库（`HANDOFF` + commits）为主 |
-| skill 知识层 | 装共享机 / 各实例 | 装各自实例 |
+| 框架实例 | 共享工作区一份 | 各工作区各一份 |
 | 适用 | 多 AI 共用开发机 | 跨机器串行交接 |
 
-> 无论哪种情况，skill 知识层都不装在「远程构建机」上——构建机（如某台 ARM 共享机）只是 SSH 可达的运行环境，协同机制跟着**项目仓库**和 **AI 的大脑（skill）**走，不跟远程机器走。
+> 无论哪种情况，框架实例都不装在「远程构建机」上——构建机（如某台 ARM 共享机）只是 SSH 可达的运行环境，协同机制跟着**项目工作区**走，不跟远程机器走。
 
 ---
 
@@ -143,11 +161,11 @@ bash ~/.codebuddy/skills/multi-agent-collab/scripts/init.sh <你的 git 仓库�
 ### 接手
 
 ```bash
-bash tools/lease.sh acquire qoder-agent "重构流量页"
-bash tools/doctor.sh
+bash <工作区>/multi-agent-collab/scripts/lease.sh acquire qoder-agent "重构流量页"
+bash <工作区>/multi-agent-collab/scripts/doctor.sh
 ```
 
-然后按六步走（详见 `templates/AGENTS.md`）：
+然后按六步走（详见 `<工作区>/AGENTS.md`）：
 
 1. **签到** —— 署名 = 产品名小写 + `-agent`。不知道自己叫什么就**拒绝开工、问用户**。
    签完把 `git config --get user.name` 放进回复用户的第一条消息，**让否决窗口打开**。
@@ -175,26 +193,26 @@ bash tools/doctor.sh
 
 ```bash
 # batch：为本次推送签发
-bash tools/approve-push.sh "用户于 2026-10-14 06:14 批准：xxx 改动入库"
+bash <工作区>/multi-agent-collab/scripts/approve-push.sh "用户于 ... 批准：xxx 改动入库"
 git push origin HEAD
 
 # plan：方案获批时签发，之后该方案范围内的 push 不必再逐次请示
-bash tools/approve-push.sh --plan "M1 指标采集" --paths "scripts/ templates/" \
-    "用户于 2026-10-14 06:14 批准 M1 方案"
+bash <工作区>/multi-agent-collab/scripts/approve-push.sh --plan "M1 指标采集" --paths "scripts/ templates/" \
+    "用户于 ... 批准 M1 方案"
 git push origin HEAD        # 方案期内可反复执行；越界改动会被 pre-push 拦下
 ```
 
 没有令牌，`pre-push` 会拒绝并打印如何取得批准。方案结束或范围变更请 `--revoke` 撤回：
 
 ```bash
-bash tools/approve-push.sh --revoke
+bash <工作区>/multi-agent-collab/scripts/approve-push.sh --revoke
 ```
 
 ---
 
 ## 工具
 
-### `tools/lease.sh` — 工作台签到
+### `scripts/lease.sh` — 工作台签到
 
 ```bash
 lease.sh status                        # 谁在、何时签的、多久没动静
@@ -205,7 +223,7 @@ lease.sh release                       # 交出工作台
 **只记录，不互斥。** 曾照搬过硬锁 + 抢占拒绝的方案（源自无人值守的自动协作场景），
 在人工调度下反而挡路：上一位卡住不放，用户钦点的下一位就进不来。
 
-### `tools/doctor.sh` — 一条命令出齐接手事实
+### `scripts/doctor.sh` — 一条命令出齐接手事实
 
 输出：环境（含时区）/ 签到 / **上一位遗留**（最后提交距今多久）/ git 位置 / 工作树 /
 看板 / push 令牌 / 凭据扫描 / 下一步提示。
@@ -213,7 +231,7 @@ lease.sh release                       # 交出工作台
 存在的理由：手敲一串命令既易漏、也易取样错误——真实事故中用 `grep | head -1`
 取「当前 HEAD」时命中了文档里另一处过期值，误报过一次。
 
-### `tools/approve-push.sh` — 签发 push 令牌
+### `scripts/approve-push.sh` — 签发 push 令牌
 
 ```bash
 # batch：逐次批准，一次推送有效（30 分钟，一次性）
@@ -230,7 +248,7 @@ approve-push.sh --revoke
 
 **`--paths` 是 `plan` 模式的必需项**，且不接受覆盖整个仓库的范围（`.` / `/` / `*`）——没有范围的方案令牌形同无把关，脚本会拒绝签发。
 
-### `tools/init.sh` — 一键安装
+### `scripts/init.sh` — 一键安装
 
 见上文「快速开始」。
 
@@ -252,7 +270,7 @@ approve-push.sh --revoke
 - 只扫**本次暂存的新增行**，不翻历史
 - 内置仅**通用特征**（私钥头、GitHub PAT 前缀、GitHub 个人令牌前缀、常见 API key 形态）
 - **项目专属特征**（内网 IP、内部域名）从工作区的 `credscan-patterns.txt` 读取，
-  每行一个正则，**该文件绝不入库**——所以本 skill 自己不携带任何真实凭据
+  每行一个正则，**该文件绝不入库**——所以本框架自己不携带任何真实凭据
 - 扫描**排除钩子所在目录**：否则钩子文件里的特征串会被自己拦下（自指问题）
 
 ### `pre-push`
@@ -317,7 +335,7 @@ approve-push.sh --revoke
 ### 5. 测试安全工具时也要守安全纪律
 
 用**伪造内容**做测试串；撤销测试提交只用 `--mixed` / `--soft`——
-`--hard` 会抹掉未提交的改动（本 skill 的钩子就曾被这样回退成旧版，导致测试文件真进了库）。
+`--hard` 会抹掉未提交的改动（本框架的钩子就曾被这样回退成旧版，导致测试文件真进了库）。
 
 附带知识点：只跑 `git gc` 删不掉刚撤回的 commit，**reflog 仍引用着它**，
 必须先 `git reflog expire --expire=now --expire-unreachable=now --all` 再 `gc --prune=now`。
@@ -345,7 +363,7 @@ approve-push.sh --revoke
 ## FAQ
 
 **Q：能防住 AI 故意绕过吗？**
-不能，也不打算。`--no-verify` 绕得过任何钩子。本 skill 的目标是防**无意违规**——
+不能，也不打算。`--no-verify` 绕得过任何钩子。本框架的目标是防**无意违规**——
 把"随手就推"变成"必须主动违规才能推"，并留下痕迹。防故意破坏靠人，不靠脚本。
 
 **Q：`plan` 令牌会不会变成「一次批准、长期放行」？**
@@ -358,7 +376,7 @@ approve-push.sh --revoke
 只给信息、不拦人，反而更符合实际。
 
 **Q：凭据扫描为什么不含项目专属串？**
-因为本 skill 是公开仓库。专属串（内网 IP、内部域名）放进库里等于公开它们。
+因为本框架是公开仓库。专属串（内网 IP、内部域名）放进库里等于公开它们。
 改由各项目写在工作树外的配置文件里，库本身保持干净。
 
 **Q：只有我一个 AI 在开发，需要这个吗？**

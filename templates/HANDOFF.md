@@ -38,5 +38,5 @@
 
 ## 测试与交付
 
-- 本地验证：`bash <工作区>/tools/doctor.sh`
-- push 前须取得用户批准：`bash <工作区>/tools/approve-push.sh "<批准说明>"`
+- 本地验证：`bash <工作区>/multi-agent-collab/scripts/doctor.sh`
+- push 前须取得用户批准：`bash <工作区>/multi-agent-collab/scripts/approve-push.sh "<批准说明>"`
