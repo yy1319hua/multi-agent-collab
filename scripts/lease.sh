@@ -1,94 +1,98 @@
 #!/usr/bin/env bash
-# 工作台签到 —— 记录「谁在场、何时签的」，供下一位接手时判断。
+# 工作台签到（非阻塞）：只记录谁在、何时签的、做什么。不互斥、不拦人。
 #
-# 设计要点：
-#   * 非阻塞。只记录信息，不拦任何人。
-#     曾照搬过「硬锁 + 抢占拒绝」的租约方案（源自无人值守的自动协作场景），
-#     在人工调度的场景下反而挡路：上一位卡住不放，用户钦点的下一位就进不来。
-#     本工具服务的是「用户手动点将串行」，所以只给信息、不做互斥。
-#   * 路径从 git 仓库根推导（工作区 = 仓库的父目录），不写死任何绝对路径。
-#   * 签到文件落在工作区、**git 工作树之外**，不会被 git add -A 抓走。
+# 设计取舍（见 references/PITFALLS.md #1、CONFORMANCE.md）：
+#   串行由「用户调度」而非「系统调度」，硬锁在「上一位卡住」时会挡住用户钦点的下一位。
+#   所以本脚本只给信息、不拦人——谁在场、干到哪，一眼可见即可。
+#
+# 状态落在「工作区」（git 工作树之外，绝不入库）：
+#   <工作区>/CURRENT_AI    当前署名（单行，无换行）
+#   <工作区>/LEASE_STATE   签到详情
 set -uo pipefail
 
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || {
-    echo "不在 git 仓库内，无法确定工作区" >&2; exit 2
+    echo "错误：不在 git 仓库内" >&2; exit 2
 }
 WS="${WORKSPACE:-$(dirname "$repo_root")}"
-SIGNIN="$WS/CURRENT_AI"
-STATE="$WS/LEASE_STATE"
+CA="$WS/CURRENT_AI"
+LS="$WS/LEASE_STATE"
 
-now() { date +%s; }
+usage() {
+    cat >&2 <<'EOF'
+用法：
+  lease.sh status                      查看谁在场、何时签的、多久没动静
+  lease.sh acquire <署名> "本轮用途"    签到（非阻塞，只记录不拦人）
+  lease.sh release                     交出工作台
 
-fmt_ago() {
-    local s=$1 d h m
-    d=$(( s / 86400 )); h=$(( (s % 86400) / 3600 )); m=$(( (s % 3600) / 60 ))
-    if   [ "$d" -gt 0 ]; then echo "${d}天${h}小时"
-    elif [ "$h" -gt 0 ]; then echo "${h}小时${m}分"
-    else                      echo "${m}分钟"; fi
+署名 = 产品名小写 + "-agent"（例：qoder-agent / glm-agent）。
+不知道自己叫什么 → 拒绝开工，问用户。
+EOF
 }
 
-cmd_status() {
-    if [ ! -f "$STATE" ]; then
-        echo "签到：无人记录（工作台空闲）"
-        return 0
-    fi
-    local agent at_epoch purpose ago
-    agent=$(sed -n 's/^AGENT=//p' "$STATE")
-    at_epoch=$(sed -n 's/^AT_EPOCH=//p' "$STATE")
-    purpose=$(sed -n 's/^PURPOSE=//p' "$STATE")
-    ago=$(( $(now) - at_epoch ))
-    echo "签到：${agent:-未知}"
-    echo "  时间：$(date -d "@${at_epoch:-0}" '+%m-%d %H:%M')（距今 $(fmt_ago "$ago")）"
-    echo "  用途：${purpose:-（未填）}"
-    [ "$ago" -gt 14400 ] && echo "  ⚠️  超过 4 小时无更新，对方大概率已停工"
-    return 0
+humanize() {  # 入参：秒数；输出：人类可读时长
+    local s=$1
+    if [ "${s:-0}" -lt 60 ]; then echo "${s} 秒"; return; fi
+    local d=$((s/86400)) h=$((s%86400/3600)) m=$((s%3600/60))
+    if [ "$d" -gt 0 ]; then echo "${d} 天 ${h} 小时"; elif [ "$h" -gt 0 ]; then echo "${h} 小时 ${m} 分"; else echo "${m} 分"; fi
 }
 
-cmd_acquire() {
-    local agent="${1:-}" purpose="${2:-}"
-    [ -z "$agent" ] && { echo "用法：lease.sh acquire <署名> [用途]" >&2; exit 2; }
+cmd="${1:-status}"
+shift || true
 
-    if [ -f "$STATE" ]; then
-        local prev prev_epoch ago
-        prev=$(sed -n 's/^AGENT=//p' "$STATE")
-        prev_epoch=$(sed -n 's/^AT_EPOCH=//p' "$STATE")
-        ago=$(( $(now) - prev_epoch ))
-        if [ -n "$prev" ] && [ "$prev" != "$agent" ] && [ "$ago" -lt 14400 ]; then
-            echo "ℹ️  上一位是 ${prev}（$(fmt_ago "$ago")前签到）。" >&2
-            echo "   本工具不做拦截——串行由用户调度，确认对方已停即可接管。" >&2
+case "$cmd" in
+    status)
+        if [ -f "$CA" ]; then
+            sig=$(tr -d '[:space:]' < "$CA")
+            echo "当前在场：$sig"
+            if [ -f "$LS" ]; then
+                purpose=$(sed -n 's/^PURPOSE=//p' "$LS")
+                at=$(sed -n 's/^ACQUIRED_AT=//p' "$LS")
+                echo "用途    ：${purpose:-（未说明）}"
+                echo "签到于  ：${at:-（未知）}"
+                es=$(sed -n 's/^ACQUIRED_EPOCH=//p' "$LS")
+                if [ -n "${es:-}" ]; then
+                    idle=$(( $(date +%s) - es ))
+                    echo "已静默  ：$(humanize "$idle")（若很久没动静，先问用户上一位是否还在）"
+                fi
+            fi
+        else
+            echo "当前无人签到（未找到 $CA）"
+            echo "  → 开工前先：lease.sh acquire <署名> \"用途\""
         fi
-    fi
-
-    {
-        echo "AGENT=$agent"
-        echo "AT=$(date '+%Y-%m-%dT%H:%M:%S%:z')"
-        echo "AT_EPOCH=$(now)"
-        echo "PURPOSE=${purpose:-（未填）}"
-    } > "$STATE"
-    chmod 600 "$STATE"
-
-    # 同步到 CURRENT_AI（接手流程第 1 步要求）。
-    # 必须写成**完整署名**（含 -agent 后缀）——pre-commit 拿它和 user.name 逐字比对。
-    # 幂等：传 workbuddy 或 workbuddy-agent 都得到 workbuddy-agent。
-    printf '%s-agent\n' "${agent%-agent}" > "$SIGNIN"
-
-    echo "✅ 已签到：$agent"
-    cmd_status | sed 's/^/   /'
-}
-
-cmd_release() {
-    if [ -f "$STATE" ]; then
-        local who; who=$(sed -n 's/^AGENT=//p' "$STATE")
-        rm -f "$STATE"
-        echo "✅ 已交出工作台（原：${who:-未知}）"
-    else
-        echo "本就空闲，无需操作"
-    fi
-}
-
-case "${1:-status}" in
-    status)  cmd_status ;;
-    acquire) shift; cmd_acquire "$@" ;;
-    release) cmd_release ;;
-    *) echo "用法：lease.sh {status|acquire <署名> [用途]|release}" >&2; exit 2 ;;
+        ;;
+    acquire)
+        [ $# -ge 1 ] || { echo "错误：acquire 需要署名" >&2; usage; exit 2; }
+        sig="$1"; purpose="${2:-（未说明）}"
+        if [[ ! "$sig" =~ ^[a-z][a-z0-9-]*-agent$ ]]; then
+            echo "错误：署名需匹配 ^[a-z][a-z0-9-]*-agent$ （例：qoder-agent）" >&2
+            exit 2
+        fi
+        printf '%s' "$sig" > "$CA"
+        now=$(date +%s)
+        {
+            echo "SIGNATURE=$sig"
+            echo "PURPOSE=$purpose"
+            echo "ACQUIRED_AT=$(date '+%Y-%m-%dT%H:%M:%S%:z')"
+            echo "ACQUIRED_EPOCH=$now"
+            echo "WORKSPACE=$WS"
+            echo "REPO=$repo_root"
+        } > "$LS"
+        chmod 600 "$CA" "$LS"
+        echo "✅ 已签到为 $sig（非阻塞，不拦人）"
+        echo "   用途：$purpose"
+        echo "   请接着执行："
+        echo "     git config --local user.name \"$sig\" && git config --local user.email \"$sig@local\""
+        echo "     git config core.hooksPath .githooks"
+        ;;
+    release)
+        if [ -f "$CA" ]; then
+            sig=$(tr -d '[:space:]' < "$CA")
+            rm -f "$CA" "$LS"
+            echo "✅ $sig 已交出工作台（CURRENT_AI / LEASE_STATE 已清除）"
+        else
+            echo "本就无人签到，无需 release。"
+        fi
+        ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "错误：未知命令 '$cmd'" >&2; usage; exit 2 ;;
 esac
